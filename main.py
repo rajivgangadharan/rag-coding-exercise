@@ -6,7 +6,7 @@ import traceback
 from dotenv import load_dotenv
 from typing import Optional, Union
 from exceptions import VectorStoreError
-import vextor
+import vexstor
 
 # Add logging facility
 import logging
@@ -52,8 +52,10 @@ from uuid import uuid4
 import os
 import shutil
 
-from vextor import Embedder
-from vextor import VexStor
+from vexstor import Embedder
+from vexstor import VexStor
+from vexstor import LanguageModel
+from prompts import prompt
 
 
 app = FastAPI()
@@ -67,6 +69,8 @@ vector_store = VexStor(
     port=os.getenv("QDRANT_CLOUD_PORT"),
     api_key=os.getenv("QDRANT_CLOUD_API_KEY"),
 )
+model_id = os.getenv("LLM_MODEL_ID", "command-r-plus")
+llm = LanguageModel(model=model_id, vexstor=vector_store)
 
 
 class SearchRequest(BaseModel):
@@ -78,6 +82,7 @@ class SearchRequest(BaseModel):
 class SearchResult(BaseModel):
     document_id: str
     content: str
+    llm_response: str
     metadata: dict
     score: float
 
@@ -89,18 +94,26 @@ class DocumentIn(BaseModel):
 
 @app.post("/search", response_model=List[SearchResult])
 def semantic_search(req: SearchRequest):
+    search_results: list[SearchResult] = list()
     try:
-        results = vector_store.similarity_search(query=req.query, top_k=req.top_k)
-        logger.debug(f"===== results = {results} ======")
-        return [
-            SearchResult(
-                document_id=str(uuid4()),  # Replace if IDs are stored
+        logger.debug(f"QUERY: {req.query}")
+        results = vector_store.qdrant.search(
+            query=req.query, search_type="similarity", k=req.top_k
+        )
+        for doc in results:
+            response = llm(doc.page_content, query=req.query, prompt=prompt)
+            sr = SearchResult(
+                document_id=doc.metadata["_id"],  # Replace if IDs are stored
                 content=doc.page_content,
+                llm_response=response.generations[0].text,
                 metadata=doc.metadata,
                 score=doc.metadata.get("score", 1.0),
             )
-            for doc in results
-        ]
+            logger.debug(f"Result Item: {sr}")
+            search_results.append(sr)
+            logger.debug(f"Returning list of length {len(search_results)}")
+
+        return search_results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

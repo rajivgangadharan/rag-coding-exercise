@@ -11,14 +11,17 @@ def search_documents(query, top_k):
         response.raise_for_status()
         results = response.json()
         output = ""
+        llm_output = ""
         for i, doc in enumerate(results):
-            output += f"### Result {i+1}:\n"
+            output += f"### Result (Vec Store) {i+1}:\n"
             output += f"**Content:** {doc['content'][:500]}...\n\n"
+            llm_output += f"### Result (LLM) {i+1}:\n"
+            llm_output += f"**LLM Response:** {doc['llm_response'][:500]}...\n\n"
             output += f"**Metadata:** {doc['metadata']}\n"
             output += f"**Score:** {doc['score']:.4f}\n\n---\n\n"
-        return output
+        return output, llm_output
     except Exception as e:
-        return f"❌ Error: {str(e)}"
+        return f"❌ Error: {str(e)}", ""
 
 
 def upload_pdf(file):
@@ -38,12 +41,17 @@ with gr.Blocks(title="🧠 Document Search Assistant") as demo:
 
     with gr.Row():
         query = gr.Textbox(label="Query", placeholder="Enter your search query")
-        top_k = gr.Slider(label="Top K", minimum=1, maximum=10, value=3, step=1)
+        top_k = gr.Slider(label="Top K", minimum=1, maximum=3, value=1, step=1)
 
     search_btn = gr.Button("🔍 Search")
-    output_box = gr.Markdown()
+    # output_box = gr.Markdown()
+    with gr.Row():
+        vector_output = gr.Markdown(label="Vector Store Results")
+        llm_output = gr.Markdown(label="LLM Responses")
 
-    search_btn.click(fn=search_documents, inputs=[query, top_k], outputs=output_box)
+    search_btn.click(
+        fn=search_documents, inputs=[query, top_k], outputs=[vector_output, llm_output]
+    )
 
     gr.Markdown("## 📄 Upload a PDF for indexing")
     uploader = gr.File(label="Upload PDF", file_types=[".pdf"])
